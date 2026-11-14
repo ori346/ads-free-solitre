@@ -1,0 +1,30 @@
+# Gradle & Kotlin build caches
+.gradle/
+.kotlin/
+build/
+app/build/
+
+# Local environment, IDE & agent files
+local.properties
+.idea/
+*.iml
+.vscode/
+.agents/
+.cxx/
+.externalNativeBuild/
+captures/
+
+# Build outputs, logs & signing keys
+*.apk
+!/AdFree-Solitaire.apk
+*.aab
+*.ap_
+*.dex
+*.log
+build.log
+*.keystore
+*.jks
+
+# OS metadata
+.DS_Store
+Thumbs.db

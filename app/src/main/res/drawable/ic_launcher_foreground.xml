@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Drop shadow under fanned cards -->
+    <group
+        android:pivotX="54"
+        android:pivotY="58"
+        android:rotation="-12">
+        <path
+            android:fillColor="#44000000"
+            android:pathData="M34,27h30a5,5 0,0 1,5 5v42a5,5 0,0 1,-5 5h-30a5,5 0,0 1,-5 -5v-42a5,5 0,0 1,5 -5z" />
+    </group>
+
+    <!-- Left fanned card (Heart card, tilted -12 deg) -->
+    <group
+        android:pivotX="54"
+        android:pivotY="58"
+        android:rotation="-12">
+        <!-- Card body -->
+        <path
+            android:fillColor="#F5F5F5"
+            android:strokeColor="#D0D0D0"
+            android:strokeWidth="0.8"
+            android:pathData="M33,25h30a5,5 0,0 1,5 5v42a5,5 0,0 1,-5 5h-30a5,5 0,0 1,-5 -5v-42a5,5 0,0 1,5 -5z" />
+        <!-- Small top-left heart pip -->
+        <path
+            android:fillColor="#D32F2F"
+            android:pathData="M35.5,36.2 C35.5,36.2 32.5,33.6 32.5,31.8 C32.5,30.6 33.4,29.8 34.4,29.8 C35.0,29.8 35.5,30.2 35.5,30.7 C35.5,30.2 36.0,29.8 36.6,29.8 C37.6,29.8 38.5,30.6 38.5,31.8 C38.5,33.6 35.5,36.2 35.5,36.2 Z" />
+        <!-- Center heart on left card -->
+        <path
+            android:fillColor="#D32F2F"
+            android:pathData="M48,60 C48,60 39,52.5 39,47 C39,43.8 41.5,41.5 44.3,41.5 C46.1,41.5 47.4,42.5 48,43.8 C48.6,42.5 49.9,41.5 51.7,41.5 C54.5,41.5 57,43.8 57,47 C57,52.5 48,60 48,60 Z" />
+    </group>
+
+    <!-- Drop shadow under front card -->
+    <group
+        android:pivotX="54"
+        android:pivotY="58"
+        android:rotation="8">
+        <path
+            android:fillColor="#55000000"
+            android:pathData="M42,27h32a5,5 0,0 1,5 5v44a5,5 0,0 1,-5 5h-32a5,5 0,0 1,-5 -5v-44a5,5 0,0 1,5 -5z" />
+    </group>
+
+    <!-- Right/Front fanned card (Ace of Spades with gold trim, tilted +8 deg) -->
+    <group
+        android:pivotX="54"
+        android:pivotY="58"
+        android:rotation="8">
+        <!-- Card body -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#FFD600"
+            android:strokeWidth="1.2"
+            android:pathData="M41,25h32a5,5 0,0 1,5 5v44a5,5 0,0 1,-5 5h-32a5,5 0,0 1,-5 -5v-44a5,5 0,0 1,5 -5z" />
+        <!-- Subtle inner gold frame -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#44D4AF37"
+            android:strokeWidth="0.7"
+            android:pathData="M42.5,28.5h29a2.5,2.5 0,0 1,2.5 2.5v39a2.5,2.5 0,0 1,-2.5 2.5h-29a2.5,2.5 0,0 1,-2.5 -2.5v-39a2.5,2.5 0,0 1,2.5 -2.5z" />
+        <!-- Top-left 'A' indicator -->
+        <path
+            android:fillColor="#151515"
+            android:pathData="M43.2,30.2 L45.0,30.2 L47.2,36.2 L45.7,36.2 L45.2,34.8 L43.0,34.8 L42.5,36.2 L41.0,36.2 Z M43.4,33.6 L44.8,33.6 L44.1,31.5 Z" />
+        <!-- Center Spade Emblem -->
+        <path
+            android:fillColor="#151515"
+            android:pathData="M57,39 C57,39 46.5,48.5 46.5,54.2 C46.5,57.4 49.0,59.8 52.0,59.8 C53.8,59.8 55.2,58.9 56.0,57.7 L54.2,64.0 L59.8,64.0 L58.0,57.7 C58.8,58.9 60.2,59.8 62.0,59.8 C65.0,59.8 67.5,57.4 67.5,54.2 C67.5,48.5 57,39 57,39 Z" />
+        <!-- Gold star spark inside spade -->
+        <path
+            android:fillColor="#FFD600"
+            android:pathData="M57,47.5 L58.1,50.8 L61.4,51.9 L58.1,53.0 L57,56.3 L55.9,53.0 L52.6,51.9 L55.9,50.8 Z" />
+    </group>
+</vector>

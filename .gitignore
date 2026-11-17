@@ -16,7 +16,6 @@ captures/
 
 # Build outputs, logs & signing keys
 *.apk
-!/AdFree-Solitaire.apk
 *.aab
 *.ap_
 *.dex

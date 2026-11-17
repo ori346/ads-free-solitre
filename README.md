@@ -116,7 +116,7 @@ app/src/test/java/com/adfree/solitaire/
 
 ## Install on Your Android Phone
 
-1. Download or copy [`AdFree-Solitaire.apk`](AdFree-Solitaire.apk) from the repository root (or GitHub Releases) to your Android phone.
+1. Download [`AdFree-Solitaire.apk` from the Latest GitHub Release](https://github.com/ori346/ads-free-solitre/releases/tag/latest) to your Android phone.
 2. Tap `AdFree-Solitaire.apk` on your phone to install it (allow *"Install unknown apps"* if prompted by Android).
 
 ---

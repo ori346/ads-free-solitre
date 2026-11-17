@@ -16,6 +16,7 @@ Designed for zero distractions: **no ads, no login, no analytics, no trackers, a
   - Every new deal in both **Draw-1** and **Draw-3** is vetted by a two-pass omniscient best-first solver (`SolitaireSolver`) with structural deadlock and cyclic-blockage detection.
   - **Interactive Solver Assistant:** Stuck mid-game? Tap **Solver** in the bottom control bar to analyze whether the current board configuration is still winnable (up to 250,000 states / 5.5s budget).
   - **Step-by-Step Solution Playback:** If a board is solvable, you can keep playing on your own or watch the solver play out the compacted winning move sequence step by step with smooth card flights (watching the solution records the game as a loss).
+  - **Return to Last Solvable Point & Fatal Move Replay:** If a board becomes unsolvable, `SolitaireSolver.findLastSolvablePoint` pinpoints the exact move in your undo history that broke solvability—using binary search over stock-cycle equivalence segments, background solvability probe caching, and bitmask/multi-card stack deadlock pruning. Selecting **Return to Solvable Point** rewinds the undo history without recording a loss or breaking your win streak, highlights and animates the fatal move forward, and glides the card(s) back to the last solvable configuration.
   - **Restart Current Deal:** Replay the exact initial card layout from the beginning whenever you want a second attempt at a deal.
 - **Smart One-Tap & Forgiving Drag-and-Drop:**
   - Tap any card—or tap anywhere on a movable face-up stack—to automatically send it to the highest-scoring legal destination (`TapTargetScorer`), prioritizing foundations, uncovering face-down cards, extending anchored runs, and avoiding burying foundation-needed cards.
@@ -70,8 +71,8 @@ app/src/main/java/com/adfree/solitaire/
     TapCycleTracker.kt       - repeated-tap alternative destination cycling state
     HintFinder.kt            - prioritized hint discovery and stock-cycle move checks
     AutoCompleter.kt         - deterministic auto-complete simulation and step execution
-    SolitaireSolver.kt       - two-pass omniscient best-first Klondike solver
-    SolverDeadlockDetector.kt  - sound structural deadlock and closed-cycle detector
+    SolitaireSolver.kt       - two-pass omniscient best-first Klondike solver and binary-search fatal-move finder
+    SolverDeadlockDetector.kt  - bitmask structural deadlock, stack-clearability, and closed-cycle detector
     SolverSuccessorGenerator.kt - omniscient move generation and safe foundation advancement
     SolverSolutionCompactor.kt - winning move sequence replay and stock-cycle compaction
     UndoRedoHistory.kt       - generic bounded undo/redo history stack
@@ -96,7 +97,7 @@ app/src/main/java/com/adfree/solitaire/
       WinConfettiOverlay.kt  - victory confetti particles and transient status banners
     dialogs/
       ConfirmDealDialog.kt   - New Deal / Restart Deal confirmation prompt
-      SolverDialog.kt        - interactive solvability check and Watch Solution / Restart Deal dialog
+      SolverDialog.kt        - interactive solvability check, Watch Solution, and Return to Solvable Point dialog
       WinDialog.kt           - victory summary, rank badge, and Play Again actions
       HelpDialog.kt          - built-in Klondike rules, controls, solver, and scoring guide
       StatsDialog.kt         - Top 10 leaderboard and lifetime statistics summary
@@ -104,7 +105,7 @@ app/src/main/java/com/adfree/solitaire/
 app/src/test/java/com/adfree/solitaire/
   game/
     EngineTest.kt            - core Klondike rules, hints, and auto-complete unit tests
-    SolverTest.kt            - omniscient solver solution replay, compaction, and deadlock rejection tests
+    SolverTest.kt            - omniscient solver replay, compaction, deadlock pruning, and binary-search fatal-move tests
     TapAndScoringTest.kt     - tap-to-move destination ranking, cycle tracking, and drop-target tests
     RulesAndInvariantsTest.kt - randomized property simulations and custom scoring config tests
   data/

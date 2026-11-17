@@ -222,6 +222,7 @@ fun GameScreen(
             canRestartDeal = vm.canRestartDeal,
             activeStreak = if (!s.isWon) vm.stats.streak else 0,
             onWatchSolution = { vm.watchSolverSolution() },
+            onReturnToSolvable = { vm.returnToLastSolvablePoint() },
             onRestartDeal = { vm.restartDeal() },
             onNewDeal = { vm.newGame() },
             onDismiss = { vm.dismissSolverDialog() },

@@ -102,10 +102,18 @@ object GameRules {
         }
 
     /** True when [cards] are all face-up and form a descending alternating-color run. */
-    fun isValidRun(cards: List<Card>): Boolean =
-        cards.all { it.faceUp } && cards.zipWithNext().all { (a, b) ->
-            a.hasOppositeColor(b) && b.rank == a.rank - 1
+    fun isValidRun(cards: List<Card>): Boolean {
+        if (cards.isEmpty()) return true
+        if (!cards[0].faceUp) return false
+        for (i in 1 until cards.size) {
+            val prev = cards[i - 1]
+            val curr = cards[i]
+            if (!curr.faceUp || !prev.hasOppositeColor(curr) || curr.rank != prev.rank - 1) {
+                return false
+            }
         }
+        return true
+    }
 
     /** True if moving cards from [from] starting at [index] onto [to] is legal in [s]. */
     fun canMove(s: GameState, from: Pile, index: Int, to: Pile): Boolean {
@@ -174,6 +182,37 @@ object GameRules {
             draws++
             curr = next
             yield(draws to curr)
+        }
+    }
+
+    /** Reconstructs the single [SolverMove] that transitions [prev] to [next], or `null` if indeterminate. */
+    fun inferMove(prev: GameState, next: GameState): SolverMove? {
+        if (prev.foundations == next.foundations && prev.tableau == next.tableau) {
+            return if (prev.stock != next.stock || prev.waste != next.waste) SolverMove.Draw else null
+        }
+        val sources = listOf(Pile.Waste) + allFoundations + allTableaus
+        val from = sources.firstOrNull { next.pile(it).size < prev.pile(it).size } ?: return null
+        val dests = allFoundations + allTableaus
+        val to = dests.firstOrNull { next.pile(it).size > prev.pile(it).size } ?: return null
+        val index = next.pile(from).size
+        return SolverMove.Move(from, index, to)
+    }
+
+    /** Formats a human-readable short label describing [move] when applied to [state]. */
+    fun formatMoveLabel(state: GameState, move: SolverMove): String = when (move) {
+        SolverMove.Draw -> "Stock draw"
+        is SolverMove.Move -> {
+            val card = state.pile(move.from).getOrNull(move.index) ?: return "Move"
+            val cardText = "${card.rankLabel}${card.suit.symbol}"
+            val destText = when (move.to) {
+                is Pile.Foundation -> "Foundation"
+                is Pile.Tableau -> {
+                    val destTop = state.pile(move.to).lastOrNull()
+                    if (destTop != null) "${destTop.rankLabel}${destTop.suit.symbol}" else "Empty Column"
+                }
+                else -> ""
+            }
+            "$cardText → $destText"
         }
     }
 

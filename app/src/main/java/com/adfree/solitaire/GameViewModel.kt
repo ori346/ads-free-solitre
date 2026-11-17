@@ -18,6 +18,7 @@ import com.adfree.solitaire.data.Storage
 import com.adfree.solitaire.game.Engine
 import com.adfree.solitaire.game.GameState
 import com.adfree.solitaire.game.Hint
+import com.adfree.solitaire.game.LastSolvablePoint
 import com.adfree.solitaire.game.Pile
 import com.adfree.solitaire.game.SolverMove
 import com.adfree.solitaire.game.TapCycleTracker
@@ -27,6 +28,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.coroutineContext
 
 /** UI state for the interactive board solvability check dialog. */
 sealed interface SolverDialogState {
@@ -39,8 +42,11 @@ sealed interface SolverDialogState {
         val exploredStates: Int,
     ) : SolverDialogState
 
-    /** No winning sequence was found within the search budget. */
-    data class Unsolvable(val exploredStates: Int) : SolverDialogState
+    /** No winning sequence was found within the search budget, optionally with the last solvable history point. */
+    data class Unsolvable(
+        val exploredStates: Int,
+        val lastSolvablePoint: LastSolvablePoint? = null,
+    ) : SolverDialogState
 }
 
 /**
@@ -84,6 +90,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var lastSolverMove by mutableStateOf<SolverMove?>(null)
         private set
+    var lastSolverReverseMove by mutableStateOf<SolverMove?>(null)
+        private set
     var solvedBySolver by mutableStateOf(false)
         private set
     var showWin by mutableStateOf(false)
@@ -96,9 +104,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private var hintCycleIndex = 0
     private var active = false
     private var dealForfeitedToSolver = false
+    private val solvabilityCache = ConcurrentHashMap<Long, Boolean>()
     private var autoJob: Job? = null
     private var solverSearchJob: Job? = null
     private var solverPlaybackJob: Job? = null
+    private var backgroundCacheJob: Job? = null
 
     private val isBusyWithAutomation: Boolean get() = autoCompleting || solverPlaying
 
@@ -116,6 +126,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         if (initialDeal == null && state.moves == 0) initialDeal = state
+        initialDeal?.let { solvabilityCache[Engine.safeBoardHash(it)] = true }
         refreshAutoCompletable()
         maybeAutoComplete()
         viewModelScope.launch {
@@ -170,15 +181,39 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun commit(next: GameState, clearTapCycle: Boolean = true) {
         if (clearTapCycle) tapCycleTracker.clear()
-        undoHistory.record(state)
+        val prev = state
+        undoHistory.record(prev)
         canUndo = undoHistory.canUndo
         canRedo = undoHistory.canRedo
         state = next
         clearHintState()
-        if (!isBusyWithAutomation) refreshAutoCompletable()
+        if (!isBusyWithAutomation) {
+            refreshAutoCompletable()
+            scheduleBackgroundSolvabilityProbe(prev, next)
+        }
         if (next.isWon) onWin()
         if (!isBusyWithAutomation) save()
         if (!solverPlaying) maybeAutoComplete()
+    }
+
+    private fun scheduleBackgroundSolvabilityProbe(prev: GameState, next: GameState) {
+        if (!settings.solverEnabled || next.isWon) return
+        if (prev.foundations == next.foundations && prev.tableau == next.tableau) return
+        val hash = Engine.safeBoardHash(next)
+        if (solvabilityCache.containsKey(hash)) return
+        backgroundCacheJob?.cancel()
+        val solverConfig = DefaultGameConfig.solver
+        backgroundCacheJob = viewModelScope.launch(Dispatchers.Default) {
+            val result = Engine.solveOmniscient(
+                initial = next,
+                maxStates = solverConfig.defaultMaxStates,
+                maxDurationMs = solverConfig.binarySearchMaxDurationMs,
+                stopOnFirstSolution = true,
+            )
+            if (result.isSolvable) {
+                solvabilityCache[hash] = true
+            }
+        }
     }
 
     private fun clearHintState() {
@@ -225,7 +260,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Starts a fresh solvable deal using the configured draw count. */
-    fun newGame() = resetToDeal(dealNewGame())
+    fun newGame() {
+        solvabilityCache.clear()
+        resetToDeal(dealNewGame())
+    }
 
     /** Restarts the current deal from its initial card layout. */
     fun restartDeal() {
@@ -238,10 +276,12 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         autoJob?.cancel()
         solverSearchJob?.cancel()
         solverPlaybackJob?.cancel()
+        backgroundCacheJob?.cancel()
         autoCompleting = false
         solverPlaying = false
         solverDialogState = null
         lastSolverMove = null
+        lastSolverReverseMove = null
         solverCurrentStep = 0
         solverTotalSteps = 0
         tapCycleTracker.clear()
@@ -256,6 +296,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         canRedo = false
         state = nextDeal
         initialDeal = nextDeal
+        solvabilityCache[Engine.safeBoardHash(nextDeal)] = true
         refreshAutoCompletable()
         elapsed = 0L
         clearHintState()
@@ -361,28 +402,113 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (isBusyWithAutomation || state.isWon || solverDialogState is SolverDialogState.Checking) return
         clearHintState()
         val snapshot = state
+        val historySnapshot = undoHistory.toList()
         val solverConfig = DefaultGameConfig.solver
         solverDialogState = SolverDialogState.Checking
         solverSearchJob?.cancel()
         solverSearchJob = viewModelScope.launch {
             val startMs = System.currentTimeMillis()
-            val result = withContext(Dispatchers.Default) {
-                Engine.solveOmniscient(
+            val nextDialogState = withContext(Dispatchers.Default) {
+                val result = Engine.solveOmniscient(
                     initial = snapshot,
                     maxStates = solverConfig.interactiveMaxStates,
                     maxDurationMs = solverConfig.interactiveMaxDurationMs,
                 )
+                if (result.isSolvable) {
+                    solvabilityCache[Engine.safeBoardHash(snapshot)] = true
+                    SolverDialogState.Solvable(
+                        winningMoves = result.winningMoves,
+                        exploredStates = result.exploredStates,
+                    )
+                } else {
+                    solvabilityCache[Engine.safeBoardHash(snapshot)] = false
+                    val lastSolvablePoint = if (historySnapshot.isNotEmpty()) {
+                        Engine.findLastSolvablePoint(
+                            history = historySnapshot,
+                            currentState = snapshot,
+                            maxStatesPerCheck = solverConfig.binarySearchMaxStates,
+                            maxDurationPerCheckMs = solverConfig.binarySearchMaxDurationMs,
+                            knownSolvability = solvabilityCache,
+                        )
+                    } else {
+                        null
+                    }
+                    SolverDialogState.Unsolvable(
+                        exploredStates = result.exploredStates,
+                        lastSolvablePoint = lastSolvablePoint,
+                    )
+                }
             }
             val elapsedMs = System.currentTimeMillis() - startMs
             val remainingMinMs = solverConfig.interactiveMinDisplayMs - elapsedMs
             if (remainingMinMs > 0L) delay(remainingMinMs)
-            solverDialogState = if (result.isSolvable) {
-                SolverDialogState.Solvable(
-                    winningMoves = result.winningMoves,
-                    exploredStates = result.exploredStates,
-                )
-            } else {
-                SolverDialogState.Unsolvable(exploredStates = result.exploredStates)
+            solverDialogState = nextDialogState
+        }
+    }
+
+    /**
+     * Rewinds the game to the last solvable state without recording a loss, highlights and
+     * animates the move that made the board unsolvable, and animates it returning to the solvable board.
+     */
+    fun returnToLastSolvablePoint() {
+        val unsolvable = solverDialogState as? SolverDialogState.Unsolvable ?: return
+        val point = unsolvable.lastSolvablePoint ?: return
+        solverDialogState = null
+        if (isBusyWithAutomation || state.isWon) return
+
+        repeat(point.movesToUndo) {
+            val prev = undoHistory.undo(state) ?: return@repeat
+            state = prev
+        }
+        tapCycleTracker.clear()
+        clearHintState()
+        canUndo = undoHistory.canUndo
+        canRedo = undoHistory.canRedo
+        refreshAutoCompletable()
+        save()
+
+        val restoredSolvableState = state
+        val moveLabel = Engine.formatMoveLabel(point.solvableState, point.fatalMove)
+        solverPlaying = true
+        solverCurrentStep = 1
+        solverTotalSteps = 1
+        lastSolverMove = null
+        lastSolverReverseMove = null
+        solverPlaybackJob?.cancel()
+        solverPlaybackJob = viewModelScope.launch {
+            val activeJob = coroutineContext[Job]
+            try {
+                if (point.fatalMove is SolverMove.Move) {
+                    hint = Hint(point.fatalMove.from, point.fatalMove.index, point.fatalMove.to)
+                }
+                delay(DefaultUiConfig.animation.fatalMoveLeadInDelayMs)
+
+                hint = null
+                lastSolverReverseMove = null
+                lastSolverMove = point.fatalMove
+                state = point.unsolvableState
+                debugBanner = "Unsolvable move ($moveLabel) — returned to last solvable point"
+                delay(DefaultUiConfig.animation.fatalMoveHoldDelayMs)
+
+                lastSolverMove = null
+                lastSolverReverseMove = point.fatalMove
+                state = restoredSolvableState
+                delay(DefaultUiConfig.animation.solverFlightDurationMs.toLong())
+            } finally {
+                if (state === point.unsolvableState) {
+                    state = restoredSolvableState
+                    refreshAutoCompletable()
+                    save()
+                }
+                if (solverPlaybackJob === activeJob) {
+                    solverPlaybackJob = null
+                    hint = null
+                    solverPlaying = false
+                    lastSolverMove = null
+                    lastSolverReverseMove = null
+                    refreshAutoCompletable()
+                    save()
+                }
             }
         }
     }
@@ -446,8 +572,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun stopSolverPlayback() {
         solverPlaybackJob?.cancel()
         solverPlaybackJob = null
+        hint = null
         solverPlaying = false
         lastSolverMove = null
+        lastSolverReverseMove = null
         refreshAutoCompletable()
         save()
     }
@@ -494,6 +622,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         Engine.debugMode = s.debugMode
         if (!s.debugMode) debugBanner = null
         if (!s.solverEnabled) {
+            backgroundCacheJob?.cancel()
             dismissSolverDialog()
             if (solverPlaying) stopSolverPlayback()
         }

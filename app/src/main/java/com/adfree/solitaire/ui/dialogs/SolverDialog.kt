@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adfree.solitaire.SolverDialogState
+import com.adfree.solitaire.game.Engine
+import com.adfree.solitaire.game.LastSolvablePoint
 
 private const val CARD_SURFACE_ALPHA = 0.5f
 private val ProgressIndicatorSize = 26.dp
@@ -31,8 +33,8 @@ private val InfoCardCornerRadius = 10.dp
 private val SolverDialogMaxBodyHeight = 320.dp
 
 /**
- * Dialog presenting live solver progress, solvability outcome, and actions to either
- * watch the step-by-step solution (for solvable boards) or restart/redeal (for unsolvable boards).
+ * Dialog presenting live solver progress, solvability outcome, and actions to watch the
+ * solution (for solvable boards), return to the last solvable point, or restart/redeal.
  */
 @Composable
 fun SolverDialog(
@@ -40,6 +42,7 @@ fun SolverDialog(
     canRestartDeal: Boolean,
     activeStreak: Int,
     onWatchSolution: () -> Unit,
+    onReturnToSolvable: () -> Unit = {},
     onRestartDeal: () -> Unit,
     onNewDeal: () -> Unit,
     onDismiss: () -> Unit,
@@ -53,8 +56,10 @@ fun SolverDialog(
             onKeepPlaying = onDismiss,
         )
         is SolverDialogState.Unsolvable -> SolverUnsolvableDialog(
+            lastSolvablePoint = dialogState.lastSolvablePoint,
             canRestartDeal = canRestartDeal,
             activeStreak = activeStreak,
+            onReturnToSolvable = onReturnToSolvable,
             onRestartDeal = onRestartDeal,
             onNewDeal = onNewDeal,
             onDismiss = onDismiss,
@@ -143,16 +148,24 @@ private fun SolverSolvableDialog(
 
 @Composable
 private fun SolverUnsolvableDialog(
+    lastSolvablePoint: LastSolvablePoint?,
     canRestartDeal: Boolean,
     activeStreak: Int,
+    onReturnToSolvable: () -> Unit,
     onRestartDeal: () -> Unit,
     onNewDeal: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val prompt = if (canRestartDeal) {
-        "This board configuration is no longer solvable. Would you like to restart this deal from the beginning (which is solvable) or deal a new game?"
-    } else {
-        "No winning solution was found for this board configuration. Would you like to start a fresh deal?"
+    val prompt = when {
+        lastSolvablePoint != null -> {
+            val movesAgo = lastSolvablePoint.movesToUndo
+            val moveLabel = Engine.formatMoveLabel(lastSolvablePoint.solvableState, lastSolvablePoint.fatalMove)
+            "This board configuration is no longer solvable. It was still solvable $movesAgo move${if (movesAgo == 1) "" else "s"} ago before \"$moveLabel\". Return there and watch the move that broke solvability?"
+        }
+        canRestartDeal ->
+            "This board configuration is no longer solvable. Would you like to restart this deal from the beginning (which is solvable) or deal a new game?"
+        else ->
+            "No winning solution was found for this board configuration. Would you like to start a fresh deal?"
     }
 
     AlertDialog(
@@ -168,26 +181,42 @@ private fun SolverUnsolvableDialog(
             ) {
                 Text(text = prompt, fontSize = 14.sp)
                 if (activeStreak > 0) {
-                    SolverWarningCard(
-                        text = "Restarting or dealing a new game will end your $activeStreak-game win streak.",
-                    )
+                    val streakWarning = if (lastSolvablePoint != null) {
+                        "Returning to the last solvable point keeps your $activeStreak-game win streak intact. Restarting or dealing a new game will end it."
+                    } else {
+                        "Restarting or dealing a new game will end your $activeStreak-game win streak."
+                    }
+                    SolverWarningCard(text = streakWarning)
                 }
             }
         },
         confirmButton = {
-            if (canRestartDeal) {
-                TextButton(onClick = onRestartDeal) {
-                    Text("Restart Deal", fontWeight = FontWeight.Bold)
+            when {
+                lastSolvablePoint != null -> {
+                    TextButton(onClick = onReturnToSolvable) {
+                        Text("Return to Solvable Point", fontWeight = FontWeight.Bold)
+                    }
                 }
-            } else {
-                TextButton(onClick = onNewDeal) {
-                    Text("New Deal", fontWeight = FontWeight.Bold)
+                canRestartDeal -> {
+                    TextButton(onClick = onRestartDeal) {
+                        Text("Restart Deal", fontWeight = FontWeight.Bold)
+                    }
+                }
+                else -> {
+                    TextButton(onClick = onNewDeal) {
+                        Text("New Deal", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         },
         dismissButton = {
             Row {
-                if (canRestartDeal) {
+                if (lastSolvablePoint != null && canRestartDeal) {
+                    TextButton(onClick = onRestartDeal) {
+                        Text("Restart")
+                    }
+                }
+                if (lastSolvablePoint != null || canRestartDeal) {
                     TextButton(onClick = onNewDeal) {
                         Text("New Deal")
                     }

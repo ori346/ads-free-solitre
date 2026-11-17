@@ -346,6 +346,11 @@ class BoardGestureState(
     }
 
     private fun handleSolverStepFlight(prev: GameState) {
+        val reverseMove = vm.lastSolverReverseMove
+        if (reverseMove != null) {
+            handleSolverReverseFlight(prev, reverseMove)
+            return
+        }
         val move = vm.lastSolverMove ?: return
         when (move) {
             SolverMove.Draw -> {
@@ -371,6 +376,41 @@ class BoardGestureState(
                 launchFlight(
                     destPile = move.to,
                     destStartIndex = destStartIdx,
+                    cards = movingCards,
+                    ys = ys,
+                    startOrigin = startOrigin,
+                    durationMs = config.animation.solverFlightDurationMs,
+                )
+            }
+        }
+    }
+
+    private fun handleSolverReverseFlight(prev: GameState, move: SolverMove) {
+        when (move) {
+            SolverMove.Draw -> {
+                if (prev.waste.isEmpty() || vm.state.stock.size <= prev.stock.size) return
+                val wasteIdx = prev.waste.lastIndex
+                val startOrigin = cardBoardOrigin(Pile.Waste, wasteIdx) ?: return
+                triggerHaptic()
+                launchFlight(
+                    destPile = Pile.Stock,
+                    destStartIndex = 0,
+                    cards = listOf(prev.waste[wasteIdx].copy(faceUp = false)),
+                    ys = listOf(0f),
+                    startOrigin = startOrigin,
+                    durationMs = config.animation.drawFlightDurationMs,
+                )
+            }
+            is SolverMove.Move -> {
+                val destStartIdx = vm.state.pile(move.to).size
+                val prevToPile = prev.pile(move.to)
+                if (destStartIdx !in prevToPile.indices) return
+                val (movingCards, ys) = buildMovingStackPayload(prevToPile, move.to, destStartIdx)
+                val startOrigin = cardBoardOrigin(move.to, destStartIdx) ?: return
+                triggerHaptic()
+                launchFlight(
+                    destPile = move.from,
+                    destStartIndex = move.index,
                     cards = movingCards,
                     ys = ys,
                     startOrigin = startOrigin,

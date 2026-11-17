@@ -101,6 +101,8 @@ data class TapHeuristicConfig(
  * @property interactiveMaxStates Maximum states explored when the user interactively runs the board solver.
  * @property interactiveMaxDurationMs Maximum wall-clock time in milliseconds for an interactive solver run.
  * @property interactiveMinDisplayMs Minimum spinner display time in milliseconds for an interactive solver check.
+ * @property binarySearchMaxStates Maximum states explored per binary-search probe when locating the last solvable state.
+ * @property binarySearchMaxDurationMs Maximum wall-clock time in milliseconds per binary-search probe.
  * @property foundationCardReward Heuristic reward per card already placed on foundations.
  * @property hiddenCardBasePenalty Base heuristic penalty per face-down tableau card.
  * @property hiddenNextFoundationUrgency Extra penalty when a face-down card is immediately needed on foundation.
@@ -116,6 +118,8 @@ data class SolverConfig(
     val interactiveMaxStates: Int = 250_000,
     val interactiveMaxDurationMs: Long = 5_500L,
     val interactiveMinDisplayMs: Long = 350L,
+    val binarySearchMaxStates: Int = 25_000,
+    val binarySearchMaxDurationMs: Long = 600L,
     val foundationCardReward: Int = 120,
     val hiddenCardBasePenalty: Int = 35,
     val hiddenNextFoundationUrgency: Int = 45,

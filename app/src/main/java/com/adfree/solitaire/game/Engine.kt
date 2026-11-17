@@ -119,9 +119,34 @@ object Engine {
         initial: GameState,
         maxStates: Int = DefaultGameConfig.solver.defaultMaxStates,
         maxDurationMs: Long = Long.MAX_VALUE,
+        stopOnFirstSolution: Boolean = false,
     ): SolverResult = SolitaireSolver.solveOmniscient(
         initial = initial,
         maxStates = maxStates,
         maxDurationMs = maxDurationMs,
+        stopOnFirstSolution = stopOnFirstSolution,
+    )
+
+    fun inferMove(prev: GameState, next: GameState): SolverMove? =
+        GameRules.inferMove(prev, next)
+
+    fun formatMoveLabel(state: GameState, move: SolverMove): String =
+        GameRules.formatMoveLabel(state, move)
+
+    fun safeBoardHash(s: GameState): Long =
+        SolitaireSolver.safeBoardHash(s)
+
+    fun findLastSolvablePoint(
+        history: List<GameState>,
+        currentState: GameState,
+        maxStatesPerCheck: Int = DefaultGameConfig.solver.binarySearchMaxStates,
+        maxDurationPerCheckMs: Long = DefaultGameConfig.solver.binarySearchMaxDurationMs,
+        knownSolvability: MutableMap<Long, Boolean>? = null,
+    ): LastSolvablePoint? = SolitaireSolver.findLastSolvablePoint(
+        history = history,
+        currentState = currentState,
+        maxStatesPerCheck = maxStatesPerCheck,
+        maxDurationPerCheckMs = maxDurationPerCheckMs,
+        knownSolvability = knownSolvability,
     )
 }

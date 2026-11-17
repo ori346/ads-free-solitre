@@ -57,6 +57,8 @@ data class BoardLayoutConfig(
  * @property confettiParticleCount Number of confetti particles rendered on victory.
  * @property repeatButtonInitialDelayMs Hold delay before undo/redo repeat begins in milliseconds.
  * @property repeatButtonStepIntervalMs Interval between repeated undo/redo steps while held in milliseconds.
+ * @property fatalMoveLeadInDelayMs Highlight pause before animating the fatal move when returning to the last solvable point.
+ * @property fatalMoveHoldDelayMs Hold duration showing the unsolvable board before animating the fatal move back.
  */
 data class AnimationConfig(
     val tapFlightDurationMs: Int = 170,
@@ -75,6 +77,8 @@ data class AnimationConfig(
     val confettiParticleCount: Int = 20,
     val repeatButtonInitialDelayMs: Long = 380L,
     val repeatButtonStepIntervalMs: Long = 110L,
+    val fatalMoveLeadInDelayMs: Long = 300L,
+    val fatalMoveHoldDelayMs: Long = 700L,
 )
 
 /**

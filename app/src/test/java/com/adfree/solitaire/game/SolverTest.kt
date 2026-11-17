@@ -370,4 +370,165 @@ class SolverTest {
             assertTrue(curr.isWon)
         }
     }
+
+    @Test fun inferMoveAndFormatMoveLabelHandleAllMoveTypes() {
+        val fSpades = listOf(Card(Suit.SPADES, 1, true))
+        val col0 = listOf(Card(Suit.DIAMONDS, 10, false), Card(Suit.HEARTS, 7, true), Card(Suit.CLUBS, 6, true))
+        val col1 = listOf(Card(Suit.SPADES, 8, true))
+        val col2 = emptyList<Card>()
+        val stock = listOf(Card(Suit.HEARTS, 2, false))
+        val waste = listOf(Card(Suit.SPADES, 2, true), Card(Suit.CLUBS, 13, true))
+        val base = GameState(
+            stock = stock,
+            waste = waste,
+            foundations = listOf(fSpades, emptyList(), emptyList(), emptyList()),
+            tableau = listOf(col0, col1, col2) + List(4) { emptyList() },
+            drawCount = 1,
+        )
+
+        val drawn = Engine.draw(base)!!
+        assertEquals(SolverMove.Draw, Engine.inferMove(base, drawn))
+        assertEquals("Stock draw", Engine.formatMoveLabel(base, SolverMove.Draw))
+
+        val recycled = Engine.draw(drawn)!!
+        assertEquals(SolverMove.Draw, Engine.inferMove(drawn, recycled))
+
+        val wasteToEmpty = Engine.move(base, Pile.Waste, 1, Pile.Tableau(2))!!
+        val expectedWasteToEmpty = SolverMove.Move(Pile.Waste, 1, Pile.Tableau(2))
+        assertEquals(expectedWasteToEmpty, Engine.inferMove(base, wasteToEmpty))
+        assertEquals("K${Suit.CLUBS.symbol} → Empty Column", Engine.formatMoveLabel(base, expectedWasteToEmpty))
+
+        val wasteToFndState = base.withPile(Pile.Waste, listOf(Card(Suit.SPADES, 2, true)))
+        val wasteToFnd = Engine.move(wasteToFndState, Pile.Waste, 0, Pile.Foundation(0))!!
+        val expectedWasteToFnd = SolverMove.Move(Pile.Waste, 0, Pile.Foundation(0))
+        assertEquals(expectedWasteToFnd, Engine.inferMove(wasteToFndState, wasteToFnd))
+        assertEquals("2${Suit.SPADES.symbol} → Foundation", Engine.formatMoveLabel(wasteToFndState, expectedWasteToFnd))
+
+        val stackMoveWithFlip = Engine.move(base, Pile.Tableau(0), 1, Pile.Tableau(1))!!
+        val expectedStackMove = SolverMove.Move(Pile.Tableau(0), 1, Pile.Tableau(1))
+        assertEquals(expectedStackMove, Engine.inferMove(base, stackMoveWithFlip))
+        assertEquals("7${Suit.HEARTS.symbol} → 8${Suit.SPADES.symbol}", Engine.formatMoveLabel(base, expectedStackMove))
+
+        val toFoundation = Engine.move(base, Pile.Tableau(0), 2, Pile.Foundation(3))
+        assertEquals(null, toFoundation)
+
+        val aceBase = base.withPile(Pile.Tableau(3), listOf(Card(Suit.CLUBS, 1, true)))
+        val aceToFnd = Engine.move(aceBase, Pile.Tableau(3), 0, Pile.Foundation(3))!!
+        val expectedAceToFnd = SolverMove.Move(Pile.Tableau(3), 0, Pile.Foundation(3))
+        assertEquals(expectedAceToFnd, Engine.inferMove(aceBase, aceToFnd))
+        assertEquals("A${Suit.CLUBS.symbol} → Foundation", Engine.formatMoveLabel(aceBase, expectedAceToFnd))
+
+        val fndToTableauState = base.withPile(Pile.Tableau(3), listOf(Card(Suit.HEARTS, 2, true)))
+        val fndToTableau = Engine.move(fndToTableauState, Pile.Foundation(0), 0, Pile.Tableau(3))!!
+        val expectedFndToTab = SolverMove.Move(Pile.Foundation(0), 0, Pile.Tableau(3))
+        assertEquals(expectedFndToTab, Engine.inferMove(fndToTableauState, fndToTableau))
+        assertEquals("A${Suit.SPADES.symbol} → 2${Suit.HEARTS.symbol}", Engine.formatMoveLabel(fndToTableauState, expectedFndToTab))
+
+        assertEquals(null, Engine.inferMove(base, base))
+    }
+
+    @Test fun deadlockDetectorRejectsMultiCardFaceUpStackDeadlockAndPreservesSolvableDeals() {
+        val foundations = listOf(
+            listOf(Card(Suit.SPADES, 1, true), Card(Suit.SPADES, 2, true)),
+            emptyList(),
+            listOf(Card(Suit.DIAMONDS, 1, true), Card(Suit.DIAMONDS, 2, true), Card(Suit.DIAMONDS, 3, true)),
+            listOf(Card(Suit.CLUBS, 1, true), Card(Suit.CLUBS, 2, true)),
+        )
+        // Col 0 locks A♥/4♥/4♦/3♣ beneath [3♠, 2♥]: 2♥ has no reachable 3♣ or A♥, and [3♠, 2♥] has no reachable 4♥/4♦.
+        val lockedCol0 = listOf(
+            Card(Suit.HEARTS, 1, false),
+            Card(Suit.HEARTS, 4, false),
+            Card(Suit.DIAMONDS, 4, false),
+            Card(Suit.CLUBS, 3, false),
+            Card(Suit.SPADES, 3, true),
+            Card(Suit.HEARTS, 2, true),
+        )
+        val used = (foundations.flatten() + lockedCol0).map { it.id }.toSet()
+        val remaining = Suit.entries
+            .flatMap { s -> (1..13).map { r -> Card(s, r, false) } }
+            .filter { it.id !in used }
+        val deadlocked = GameState(
+            stock = remaining.drop(6),
+            waste = emptyList(),
+            foundations = foundations,
+            tableau = listOf(lockedCol0) + (0 until 6).map { listOf(remaining[it].copy(faceUp = true)) },
+            drawCount = 1,
+        )
+        assertEquals(52, (deadlocked.stock + deadlocked.foundations.flatten() + deadlocked.tableau.flatten()).map { it.id }.toSet().size)
+        assertTrue(SolitaireSolver.hasStructuralDeadlock(deadlocked))
+        assertFalse(SolitaireSolver.isSolvableOmniscient(deadlocked))
+
+        for (drawCount in listOf(1, 3)) {
+            for (seed in 1L..5L) {
+                val deal = GameDealer.newGame(drawCount = drawCount, seed = seed, ensureSolvable = true)
+                assertFalse("Solvable deal drawCount=$drawCount seed=$seed triggered false deadlock", SolitaireSolver.hasStructuralDeadlock(deal))
+            }
+        }
+    }
+
+    @Test fun findLastSolvablePointLocatesFatalMoveViaBinarySearchQuickly() {
+        val foundations = listOf(
+            listOf(Card(Suit.SPADES, 1, true), Card(Suit.SPADES, 2, true)),
+            emptyList(),
+            listOf(Card(Suit.DIAMONDS, 1, true), Card(Suit.DIAMONDS, 2, true), Card(Suit.DIAMONDS, 3, true)),
+            listOf(Card(Suit.CLUBS, 1, true), Card(Suit.CLUBS, 2, true)),
+        )
+        val tableaus = listOf(
+            listOf(
+                Card(Suit.HEARTS, 1, false),
+                Card(Suit.HEARTS, 4, false),
+                Card(Suit.DIAMONDS, 4, false),
+                Card(Suit.CLUBS, 3, false),
+                Card(Suit.SPADES, 3, true),
+            ),
+            listOf(Card(Suit.HEARTS, 2, true)),
+            listOf(Card(Suit.SPADES, 10, true), Card(Suit.HEARTS, 9, true)),
+            listOf(Card(Suit.CLUBS, 10, true)),
+            listOf(Card(Suit.DIAMONDS, 11, true), Card(Suit.HEARTS, 10, true)),
+            listOf(Card(Suit.SPADES, 11, true)),
+            listOf(Card(Suit.CLUBS, 12, true)),
+        )
+        val used = (foundations.flatten() + tableaus.flatten()).map { it.id }.toSet()
+        val stock = Suit.entries
+            .flatMap { s -> (1..13).map { r -> Card(s, r, false) } }
+            .filter { it.id !in used }
+            .reversed()
+        val s0 = GameState(stock, emptyList(), foundations, tableaus, drawCount = 1)
+        assertEquals(52, (s0.stock + s0.foundations.flatten() + s0.tableau.flatten()).map { it.id }.toSet().size)
+        assertTrue(SolitaireSolver.isSolvableOmniscient(s0))
+
+        val s1 = Engine.draw(s0)!!
+        val s2 = Engine.move(s1, Pile.Tableau(2), 1, Pile.Tableau(3))!!
+        val s3 = Engine.draw(s2)!!
+        val s4 = Engine.move(s3, Pile.Tableau(4), 1, Pile.Tableau(5))!!
+        val s5 = Engine.draw(s4)!!
+        val s6 = Engine.draw(s5)!!
+        // Fatal move at s6 -> s7: placing 2♥ on 3♠ traps A♥/4♥/4♦/3♣ in Col 0 forever.
+        val fatalMove = SolverMove.Move(Pile.Tableau(1), 0, Pile.Tableau(0))
+        val s7 = Engine.move(s6, fatalMove.from, fatalMove.index, fatalMove.to)!!
+        val s8 = Engine.draw(s7)!!
+        val s9 = Engine.move(s8, Pile.Tableau(3), 1, Pile.Tableau(2))!!
+        val s10 = Engine.draw(s9)!!
+
+        val history = listOf(s0, s1, s2, s3, s4, s5, s6, s7, s8, s9)
+        val cache = HashMap<Long, Boolean>()
+        val startNs = System.nanoTime()
+        val point = SolitaireSolver.findLastSolvablePoint(
+            history = history,
+            currentState = s10,
+            knownSolvability = cache,
+        )
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+
+        assertTrue("Expected non-null LastSolvablePoint", point != null)
+        assertEquals(6, point!!.historyIndex)
+        assertEquals(s6, point.solvableState)
+        assertEquals(s7, point.unsolvableState)
+        assertEquals(fatalMove, point.fatalMove)
+        assertEquals(4, point.movesToUndo)
+        assertTrue("Binary search took too long: ${elapsedMs}ms", elapsedMs < 1_500L)
+
+        // Empty history returns null cleanly.
+        assertEquals(null, SolitaireSolver.findLastSolvablePoint(emptyList(), s10))
+    }
 }

@@ -29,6 +29,23 @@ data class SolverResult(
 )
 
 /**
+ * Identifies the transition in a game's undo history where the board changed from solvable to unsolvable.
+ *
+ * @property historyIndex Index in the combined `(history + currentState)` timeline of [solvableState].
+ * @property solvableState The last board snapshot that remained solvable.
+ * @property unsolvableState The immediately following snapshot where solvability was lost.
+ * @property fatalMove The move transitioning from [solvableState] to [unsolvableState].
+ * @property movesToUndo Number of undo steps from the current state back to [solvableState].
+ */
+data class LastSolvablePoint(
+    val historyIndex: Int,
+    val solvableState: GameState,
+    val unsolvableState: GameState,
+    val fatalMove: SolverMove,
+    val movesToUndo: Int,
+)
+
+/**
  * Omniscient best-first Klondike solver delegating deadlock detection, successor generation,
  * and solution compaction to focused helper modules.
  */
@@ -52,14 +69,18 @@ object SolitaireSolver {
     /**
      * Searches from [initial] using full card visibility up to [maxStates] explored states
      * and [maxDurationMs] wall-clock milliseconds.
+     * When [stopOnFirstSolution] is `true`, returns as soon as any winning state is reached
+     * without reconstructing or compacting [SolverResult.winningMoves].
      * Every transition uses legal [GameRules.draw] / [GameRules.move] steps so [SolverResult.winningMoves]
-     * is guaranteed to replay cleanly to `isWon == true` whenever [SolverResult.isSolvable] is `true`.
+     * is guaranteed to replay cleanly to `isWon == true` whenever [SolverResult.isSolvable] is `true`
+     * and [stopOnFirstSolution] is `false`.
      */
     fun solveOmniscient(
         initial: GameState,
         maxStates: Int = DefaultGameConfig.solver.defaultMaxStates,
         maxDurationMs: Long = Long.MAX_VALUE,
         config: SolverConfig = DefaultGameConfig.solver,
+        stopOnFirstSolution: Boolean = false,
     ): SolverResult {
         if (initial.isWon) return SolverResult(isSolvable = true, exploredStates = 1)
         if (hasStructuralDeadlock(initial)) return SolverResult(isSolvable = false, exploredStates = 1)
@@ -74,7 +95,7 @@ object SolitaireSolver {
             drawMoveCount = 0,
             recycleCount = 0,
         )
-        finishIfSolved(rootNode, explored = 1, config, initial)?.let { return it }
+        finishIfSolved(rootNode, explored = 1, config, initial, stopOnFirstSolution)?.let { return it }
         if (hasStructuralDeadlock(startState)) return SolverResult(isSolvable = false, exploredStates = 1)
 
         val hasDeadline = maxDurationMs < Long.MAX_VALUE
@@ -98,9 +119,13 @@ object SolitaireSolver {
                 config = config,
                 useGreedyStockStep = true,
                 initialBest = null,
+                stopOnFirstSolution = stopOnFirstSolution,
             )
             totalExplored += greedyRes.exploredStates
             if (greedyRes.isSolvable) {
+                if (stopOnFirstSolution) {
+                    return SolverResult(isSolvable = true, exploredStates = totalExplored)
+                }
                 bestSolution = greedyRes.winningMoves
             }
         }
@@ -123,10 +148,16 @@ object SolitaireSolver {
                 config = config,
                 useGreedyStockStep = false,
                 initialBest = bestSolution,
+                stopOnFirstSolution = stopOnFirstSolution,
             )
             totalExplored += standardRes.exploredStates
-            if (standardRes.isSolvable && (bestSolution == null || standardRes.winningMoves.size < bestSolution.size)) {
-                bestSolution = standardRes.winningMoves
+            if (standardRes.isSolvable) {
+                if (stopOnFirstSolution) {
+                    return SolverResult(isSolvable = true, exploredStates = totalExplored)
+                }
+                if (bestSolution == null || standardRes.winningMoves.size < bestSolution.size) {
+                    bestSolution = standardRes.winningMoves
+                }
             }
         }
 
@@ -146,6 +177,7 @@ object SolitaireSolver {
         config: SolverConfig,
         useGreedyStockStep: Boolean,
         initialBest: List<SolverMove>?,
+        stopOnFirstSolution: Boolean,
     ): SolverResult {
         val bestMovesToState = HashMap<Long, Int>()
         val queue = PriorityQueue<Pair<Int, SearchNode>>(
@@ -169,11 +201,11 @@ object SolitaireSolver {
             if (hasDeadline && (explored and DEADLINE_CHECK_MASK) == 0 && System.nanoTime() >= deadlineNanos) {
                 break
             }
-            if (bestSolution != null && explored - bestFoundAtExplored >= improvementWindow) {
+            if (bestSolution != null && (stopOnFirstSolution || explored - bestFoundAtExplored >= improvementWindow)) {
                 break
             }
             val (_, currNode) = queue.poll() ?: break
-            if (bestSolution != null && minTotalMovesLowerBound(currNode) >= bestSolution.size) {
+            if (!stopOnFirstSolution && bestSolution != null && minTotalMovesLowerBound(currNode) >= bestSolution.size) {
                 continue
             }
             val recordedBest = bestMovesToState[currNode.state.boardHash()]
@@ -182,7 +214,8 @@ object SolitaireSolver {
             }
             explored++
 
-            finishIfSolved(currNode, explored, config, initial)?.let { solved ->
+            finishIfSolved(currNode, explored, config, initial, stopOnFirstSolution)?.let { solved ->
+                if (stopOnFirstSolution) return solved
                 if (bestSolution == null || solved.winningMoves.size < bestSolution.size) {
                     bestSolution = solved.winningMoves
                     bestFoundAtExplored = explored
@@ -201,12 +234,19 @@ object SolitaireSolver {
                     drawMoveCount = currNode.drawMoveCount + successor.drawCount,
                     recycleCount = currNode.recycleCount + successor.recycleCount,
                 )
-                if (bestSolution != null && minTotalMovesLowerBound(nextNode) >= bestSolution.size) {
+                if (!stopOnFirstSolution && bestSolution != null && minTotalMovesLowerBound(nextNode) >= bestSolution.size) {
                     continue
                 }
 
-                val solved = finishIfSolved(nextNode, explored, config, initial)
+                val hash = nextState.boardHash()
+                val prevBest = bestMovesToState[hash]
+                if (prevBest != null && (bestSolution == null || stopOnFirstSolution || nextNode.moveCount >= prevBest)) {
+                    continue
+                }
+
+                val solved = finishIfSolved(nextNode, explored, config, initial, stopOnFirstSolution)
                 if (solved != null) {
+                    if (stopOnFirstSolution) return solved
                     if (bestSolution == null || solved.winningMoves.size < bestSolution.size) {
                         bestSolution = solved.winningMoves
                         bestFoundAtExplored = explored
@@ -214,12 +254,13 @@ object SolitaireSolver {
                     continue
                 }
 
-                val hash = nextState.boardHash()
-                val prevBest = bestMovesToState[hash]
-                if (prevBest == null || nextNode.moveCount < prevBest) {
-                    bestMovesToState[hash] = nextNode.moveCount
-                    queue.add(priorityScore(nextNode, config) to nextNode)
+                if (hasStructuralDeadlock(nextState)) {
+                    bestMovesToState[hash] = DEADLOCK_MARKER_MOVES
+                    continue
                 }
+
+                bestMovesToState[hash] = nextNode.moveCount
+                queue.add(priorityScore(nextNode, config) to nextNode)
             }
         }
         return if (bestSolution != null) {
@@ -233,7 +274,97 @@ object SolitaireSolver {
     fun isSolvableOmniscient(
         initial: GameState,
         maxStates: Int = DefaultGameConfig.solver.defaultMaxStates,
-    ): Boolean = solveOmniscient(initial, maxStates).isSolvable
+    ): Boolean = solveOmniscient(initial, maxStates, stopOnFirstSolution = true).isSolvable
+
+    /** Returns the structural [GameState.boardHash] of [s] after safe foundation auto-advances. */
+    fun safeBoardHash(
+        s: GameState,
+        config: SolverConfig = DefaultGameConfig.solver,
+    ): Long = SolverSuccessorGenerator.autoAdvanceSafeFoundationsWithMoves(s, config).first.boardHash()
+
+    /**
+     * Binary-searches the undo timeline (`history + currentState`) to locate the last solvable
+     * state and the single fatal move that rendered the board unsolvable.
+     */
+    fun findLastSolvablePoint(
+        history: List<GameState>,
+        currentState: GameState,
+        maxStatesPerCheck: Int = DefaultGameConfig.solver.binarySearchMaxStates,
+        maxDurationPerCheckMs: Long = DefaultGameConfig.solver.binarySearchMaxDurationMs,
+        knownSolvability: MutableMap<Long, Boolean>? = null,
+        config: SolverConfig = DefaultGameConfig.solver,
+    ): LastSolvablePoint? {
+        if (history.isEmpty()) return null
+        val timeline = ArrayList<GameState>(history.size + 1).apply {
+            addAll(history)
+            add(currentState)
+        }
+        val autoHashes = LongArray(timeline.size) { idx ->
+            SolverSuccessorGenerator.autoAdvanceSafeFoundationsWithMoves(timeline[idx], config).first.boardHash()
+        }
+        val segments = ArrayList<IntRange>()
+        var segStart = 0
+        for (i in 1 until timeline.size) {
+            val sameSegment = autoHashes[i] == autoHashes[i - 1] ||
+                GameRules.inferMove(timeline[i - 1], timeline[i]) == SolverMove.Draw
+            if (!sameSegment) {
+                segments.add(segStart until i)
+                segStart = i
+            }
+        }
+        segments.add(segStart until timeline.size)
+        if (segments.size <= 1) return null
+
+        var highSeg = segments.lastIndex
+        for (segIdx in 0 until segments.lastIndex) {
+            if (hasStructuralDeadlock(timeline[segments[segIdx].last])) {
+                highSeg = segIdx
+                break
+            }
+        }
+        if (highSeg == 0) return null
+
+        fun checkSegmentSolvable(segIdx: Int): Boolean {
+            val endIndex = segments[segIdx].last
+            val s = timeline[endIndex]
+            val hash = autoHashes[endIndex]
+            knownSolvability?.get(hash)?.let { return it }
+            val solvable = solveOmniscient(
+                initial = s,
+                maxStates = maxStatesPerCheck,
+                maxDurationMs = maxDurationPerCheckMs,
+                config = config,
+                stopOnFirstSolution = true,
+            ).isSolvable
+            knownSolvability?.put(hash, solvable)
+            return solvable
+        }
+
+        if (!checkSegmentSolvable(0)) return null
+
+        var lowSeg = 0
+        while (lowSeg + 1 < highSeg) {
+            val mid = (lowSeg + highSeg) ushr 1
+            if (checkSegmentSolvable(mid)) {
+                lowSeg = mid
+            } else {
+                highSeg = mid
+            }
+        }
+
+        val k = segments[lowSeg].last
+        val solvableState = timeline[k]
+        val unsolvableState = timeline[k + 1]
+        val fatalMove = GameRules.inferMove(solvableState, unsolvableState) ?: SolverMove.Draw
+        val movesToUndo = history.size - k
+        return LastSolvablePoint(
+            historyIndex = k,
+            solvableState = solvableState,
+            unsolvableState = unsolvableState,
+            fatalMove = fatalMove,
+            movesToUndo = movesToUndo,
+        )
+    }
 
     private fun minTotalMovesLowerBound(node: SearchNode): Int {
         val remainingFoundations = Card.DECK_SIZE - node.state.foundationCardCount
@@ -252,8 +383,12 @@ object SolitaireSolver {
         explored: Int,
         config: SolverConfig,
         initial: GameState,
+        stopOnFirstSolution: Boolean,
     ): SolverResult? {
         if (node.state.isWon) {
+            if (stopOnFirstSolution) {
+                return SolverResult(isSolvable = true, exploredStates = explored)
+            }
             val raw = reconstructMoves(node)
             val compacted = SolverSolutionCompactor.compactSolution(initial, raw, config)
             return SolverResult(
@@ -263,14 +398,20 @@ object SolitaireSolver {
             )
         }
         if (node.state.areAllTableauCardsFaceUp) {
-            AutoCompleter.simulateAutoCompleteWithMoves(node.state, config)?.let { (_, autoMoves) ->
-                val raw = reconstructMoves(node) + autoMoves
-                val compacted = SolverSolutionCompactor.compactSolution(initial, raw, config)
-                return SolverResult(
-                    isSolvable = true,
-                    winningMoves = compacted,
-                    exploredStates = explored,
-                )
+            if (stopOnFirstSolution) {
+                if (AutoCompleter.canAutoComplete(node.state)) {
+                    return SolverResult(isSolvable = true, exploredStates = explored)
+                }
+            } else {
+                AutoCompleter.simulateAutoCompleteWithMoves(node.state, config)?.let { (_, autoMoves) ->
+                    val raw = reconstructMoves(node) + autoMoves
+                    val compacted = SolverSolutionCompactor.compactSolution(initial, raw, config)
+                    return SolverResult(
+                        isSolvable = true,
+                        winningMoves = compacted,
+                        exploredStates = explored,
+                    )
+                }
             }
         }
         return null
@@ -325,6 +466,7 @@ object SolitaireSolver {
     }
 
     private const val DEADLINE_CHECK_MASK = 63
+    private const val DEADLOCK_MARKER_MOVES = 0
     private const val NANOS_PER_MS = 1_000_000L
     private const val DEPTH_COST_WEIGHT = 2
     private const val EXTRA_DRAW_COST_WEIGHT = 2

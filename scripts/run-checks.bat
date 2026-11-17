@@ -24,7 +24,7 @@ exit /b 1
 echo Usage: scripts\run-checks.bat [--clean]
 echo.
 echo Options:
-echo   (default)    Run spotlessCheck, testDebugUnitTest, lintDebug, and assembleRelease
+echo   (default)    Run spotlessCheck, testDebugUnitTest, testReleaseUnitTest, lintDebug, and assembleRelease
 echo   --clean      Run clean before executing checks
 exit /b 0
 
@@ -39,9 +39,9 @@ if not defined JAVA_HOME (
 set "GRADLE_TASKS="
 if "%DO_CLEAN%"=="1" set "GRADLE_TASKS=clean "
 
-echo Running Gradle checks ^(%GRADLE_TASKS%spotlessCheck testDebugUnitTest lintDebug assembleRelease^)...
+echo Running Gradle checks ^(%GRADLE_TASKS%spotlessCheck testDebugUnitTest testReleaseUnitTest lintDebug assembleRelease^)...
 pushd "%ROOT_DIR%" >nul
-call "%ROOT_DIR%\gradlew.bat" %GRADLE_TASKS%spotlessCheck testDebugUnitTest lintDebug assembleRelease
+call "%ROOT_DIR%\gradlew.bat" %GRADLE_TASKS%spotlessCheck testDebugUnitTest testReleaseUnitTest lintDebug assembleRelease
 set "CHECK_EXIT=%ERRORLEVEL%"
 popd >nul
 

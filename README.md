@@ -41,10 +41,10 @@ Designed for zero distractions: **no ads, no login, no analytics, no trackers, a
 settings.gradle.kts, build.gradle.kts, gradle.properties, gradlew, gradlew.bat
 gradle/libs.versions.toml    - centralized Gradle version catalog (AGP, Kotlin, Compose BOM, plugins)
 .github/workflows/
-  ci.yml                     - GitHub Actions CI (Spotless check, unit tests, Android Lint, release APK)
+  ci.yml                     - GitHub Actions CI/CD (test & check job gating release APK build and publish)
 scripts/
-  build-apk.bat              - build release/debug APK and copy to AdFree-Solitaire.apk
-  run-checks.bat             - run spotlessCheck, testDebugUnitTest, lintDebug, and assembleRelease
+  build-apk.bat              - run unit tests, build release/debug APK, and copy to AdFree-Solitaire.apk
+  run-checks.bat             - run spotlessCheck, unit tests, lintDebug, and assembleRelease
   start-emulator.bat         - launch Android emulator (--hebrew / --english) and install debug APK
 app/build.gradle.kts
 app/src/main/AndroidManifest.xml
@@ -129,7 +129,7 @@ app/src/test/java/com/adfree/solitaire/
 ```
 Or invoke Gradle directly:
 ```powershell
-.\gradlew.bat spotlessCheck testDebugUnitTest lintDebug assembleRelease
+.\gradlew.bat spotlessCheck testDebugUnitTest testReleaseUnitTest lintDebug assembleRelease
 ```
 
 ### Auto-Format Code (Spotless + ktlint)
@@ -137,11 +137,11 @@ Or invoke Gradle directly:
 .\gradlew.bat spotlessApply
 ```
 
-### Build APK Only
+### Build APK (Runs Unit Tests First)
 ```powershell
 .\scripts\build-apk.bat
 ```
-The signed release APK is generated at `app/build/outputs/apk/release/app-release.apk` and copied to `AdFree-Solitaire.apk` in the project root.
+The signed release APK is generated at `app/build/outputs/apk/release/app-release.apk` and copied to `AdFree-Solitaire.apk` in the project root (pass `--skip-tests` to skip unit tests).
 
 ---
 
